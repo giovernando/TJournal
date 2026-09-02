@@ -4,7 +4,10 @@ import { useMemo, useState } from "react";
 import { Card, CardBody, CardHeader } from "@/components/kit/Card";
 import { Select } from "@/components/kit/Input";
 import { useTrades } from "@/hooks/useTrades";
-import { WEEKDAY_LABELS, buildMonthGrid, monthLabel } from "@/lib/calendar";
+import { WEEKDAY_LABELS, buildMonthGrid, monthLabel, dayKey } from "@/lib/calendar";
+import { RRValue } from "@/components/trades/RRValue";
+import { Modal } from "@/components/kit/Modal";
+import { Button } from "@/components/kit/Button";
 import { CURRENCY_OPTIONS, formatMoney } from "@/lib/money";
 import type { Currency } from "@/types/trade";
 
@@ -21,7 +24,7 @@ export function CalendarPage() {
   const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [currency, setCurrency] = useState<Currency>("USD");
 
-  const { weeks, monthPnl, monthTrades } = useMemo(
+  const { weeks, monthPnl, monthTrades, monthRr } = useMemo(
     () => buildMonthGrid(trades, cursor.year, cursor.month, currency),
     [trades, cursor, currency],
   );
@@ -31,6 +34,7 @@ export function CalendarPage() {
     setCursor({ year: d.getFullYear(), month: d.getMonth() });
   };
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const [selectedDate, setSelectedDate] = useState(null as string | null);
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -45,6 +49,7 @@ export function CalendarPage() {
             <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
               Profit harian & mingguan
             </h1>
+    const [selectedDate, setSelectedDate] = useState(null as string | null);
             <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
               Setiap tanggal menampilkan total profit/loss dan jumlah trade hari itu, dengan
               rekap mingguan di kolom paling kanan.
@@ -69,7 +74,11 @@ export function CalendarPage() {
         <Card className="mt-6 min-w-0">
           <CardHeader
             title={`Monthly P/L: ${formatMoney(monthPnl, currency)}`}
-            description={`${monthTrades} trade di ${monthLabel(cursor.year, cursor.month)}`}
+            description={
+              <>
+                {monthTrades} trade • Total RR: <RRValue rr={monthRr ?? null} />
+              </>
+            }
             action={
               <div className="flex items-center gap-2">
                 <div className="w-28">
@@ -135,9 +144,13 @@ export function CalendarPage() {
                         {week.days.map((day) => (
                           <div
                             key={day.key}
-                            className={`rounded-xl border px-2 py-2 text-center backdrop-blur-sm transition-colors ${toneOf(day.pnl, day.trades)} ${
-                              day.inMonth ? "" : "opacity-35"
-                            } ${day.key === todayKey ? "ring-2 ring-primary/50" : ""}`}
+                            onClick={() => setSelectedDate(day.key)}
+                            role="button"
+                            tabIndex={0}
+                            className={`rounded-xl border px-2 py-2 text-center backdrop-blur-sm transition-colors cursor-pointer ${toneOf(
+                              day.pnl,
+                              day.trades,
+                            )} ${day.inMonth ? "" : "opacity-35"}`}
                           >
                             <p className="text-[11px] font-semibold text-foreground/70">
                               {day.date.getDate()}
@@ -147,9 +160,10 @@ export function CalendarPage() {
                                 <p className="mt-1 text-xs font-bold tabular-nums">
                                   {formatMoney(day.pnl, currency)}
                                 </p>
-                                <p className="text-[10px] text-muted-foreground">
-                                  {day.trades} trade
-                                </p>
+                                <p className="text-[10px] text-muted-foreground">{day.trades} trade</p>
+                                <div className="mt-1">
+                                  <RRValue rr={day.rr ?? null} />
+                                </div>
                               </>
                             ) : (
                               <p className="mt-1 text-[10px] text-muted-foreground/60">—</p>
@@ -172,6 +186,9 @@ export function CalendarPage() {
                             {formatMoney(week.pnl, currency)}
                           </p>
                           <p className="text-[10px] text-muted-foreground">{week.trades} trade</p>
+                          <div className="mt-1">
+                            <RRValue rr={week.rr ?? null} />
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -183,6 +200,42 @@ export function CalendarPage() {
         </Card>
       </div>
       <BottomNav />
+      <Modal
+        open={selectedDate !== null}
+        onClose={() => setSelectedDate(null)}
+        title={selectedDate ? `Ringkasan ${selectedDate}` : "Ringkasan"}
+      >
+        {selectedDate ? (
+          (() => {
+            const tradesForDay = trades.filter((t) => dayKey(new Date(t.date)) === selectedDate);
+            if (tradesForDay.length === 0)
+              return <p className="text-sm text-muted-foreground">Tidak ada trade.</p>;
+
+            return (
+              <div className="space-y-3">
+                {tradesForDay.map((t) => (
+                  <div key={t.id} className="rounded-md border border-border/50 px-3 py-2">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">{t.pair} — {t.entryModel}</div>
+                        <div className="text-xs text-muted-foreground">{new Date(t.date).toLocaleString()}</div>
+                        {t.notes ? <div className="mt-2 text-xs text-muted-foreground truncate">{t.notes}</div> : null}
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold tabular-nums">{formatMoney(t.pnl, t.currency)}</div>
+                        <div className="mt-1"><RRValue rr={t.rr} /></div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
+        ) : null}
+        <div className="mt-4 flex justify-end">
+          <Button onClick={() => setSelectedDate(null)}>Tutup</Button>
+        </div>
+      </Modal>
     </div>
   );
 }
